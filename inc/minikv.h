@@ -32,6 +32,7 @@ public:
 
     Status Set(const std::string& key, const std::string& value);
     Status Get(const std::string& key, std::string* value_out);
+    Status Delete(const std::string& key);
 
 private:
     std::string filename_;

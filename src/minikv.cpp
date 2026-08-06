@@ -18,3 +18,9 @@ Status MiniKV::Get(const std::string& key, std::string* value_out)
     *value_out = it->second;
     return Status::Ok();
 }
+
+Status MiniKV::Delete(const std::string& key)
+{
+    mem_table_.erase(key);
+    return Status::Ok();
+}
