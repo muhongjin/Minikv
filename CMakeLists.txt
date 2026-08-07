@@ -8,5 +8,6 @@ include_directories(inc .)
 
 add_executable(minikv
     src/minikv.cpp
+    src/utils.cpp
     cli_main.cpp
 )

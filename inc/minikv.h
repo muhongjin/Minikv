@@ -1,8 +1,10 @@
 #ifndef MINIKV_H
 #define MINIKV_H
 
+#include <fstream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class Status {
 public:
@@ -29,6 +31,7 @@ private:
 class MiniKV {
 public:
     explicit MiniKV(const std::string& logFile = "minikv.log");
+    ~MiniKV();
 
     Status Set(const std::string& key, const std::string& value);
     Status Get(const std::string& key, std::string* value_out);
@@ -37,6 +40,11 @@ public:
 private:
     std::string filename_;
     std::unordered_map<std::string, std::string> mem_table_;
+    std::ofstream wal_file_;
+
+    void ReplayWAL();
+    void AppendSetLog(const std::string& key, const std::string& value);
+    void AppendDeleteLog(const std::string& key);
 };
 
 #endif
