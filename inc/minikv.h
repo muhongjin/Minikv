@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cstdint>
 
 class Status {
 public:
@@ -42,9 +43,15 @@ private:
     std::unordered_map<std::string, std::string> mem_table_;
     std::ofstream wal_file_;
 
+    const size_t kMemTableThreshold = 5;
+    size_t mem_entry_count_ = 0;
+    std::vector<std::string> sst_files_;
+    uint64_t next_sst_seq_{1};
+
     void ReplayWAL();
     void AppendSetLog(const std::string& key, const std::string& value);
     void AppendDeleteLog(const std::string& key);
+    void FlushMemTableToSST();
 };
 
 #endif

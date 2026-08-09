@@ -1,7 +1,9 @@
 #include "minikv.h"
 #include "utils.h"
 
+#include <cstdio>
 #include <fstream>
+#include <iostream>
 #include <vector>
 
 MiniKV::MiniKV(const std::string& logFile) : filename_(logFile)
@@ -21,7 +23,15 @@ MiniKV::~MiniKV()
 Status MiniKV::Set(const std::string& key, const std::string& value)
 {
     AppendSetLog(key, value);
+    if (mem_table_.find(key) == mem_table_.end()) {
+        ++mem_entry_count_;
+    }
     mem_table_[key] = value;
+
+    if (mem_entry_count_ >= kMemTableThreshold) {
+        FlushMemTableToSST();
+    }
+
     return Status::Ok();
 }
 
@@ -39,7 +49,11 @@ Status MiniKV::Get(const std::string& key, std::string* value_out)
 Status MiniKV::Delete(const std::string& key)
 {
     AppendDeleteLog(key);
-    mem_table_.erase(key);
+    const auto it = mem_table_.find(key);
+    if (it != mem_table_.end()) {
+        mem_table_.erase(it);
+        --mem_entry_count_;
+    }
     return Status::Ok();
 }
 
@@ -82,5 +96,27 @@ void MiniKV::ReplayWAL()
         } else if (fields[0] == "DEL" && fields.size() >= 2) {
             mem_table_.erase(fields[1]);
         }
+    }
+}
+
+void MiniKV::FlushMemTableToSST()
+{
+    const std::string sst_name =
+        "sst_" + std::to_string(next_sst_seq_++) + ".sst";
+    std::ofstream output(sst_name);
+    for (const auto& entry : mem_table_) {
+        output << entry.first << "|" << entry.second << '\n';
+    }
+    output.close();
+
+    sst_files_.push_back(sst_name);
+    mem_table_.clear();
+    mem_entry_count_ = 0;
+
+    wal_file_.close();
+    std::remove(filename_.c_str());
+    wal_file_.open(filename_, std::ios::out | std::ios::app);
+    if (!wal_file_.is_open()) {
+        std::cerr << "reopen wal after flush failed!\n";
     }
 }
