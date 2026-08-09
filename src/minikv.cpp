@@ -9,6 +9,7 @@
 MiniKV::MiniKV(const std::string& logFile) : filename_(logFile)
 {
     ReplayWAL();
+    ScanSSTFiles();
     wal_file_.open(filename_, std::ios::out | std::ios::app);
 }
 
@@ -39,7 +40,7 @@ Status MiniKV::Get(const std::string& key, std::string* value_out)
 {
     const auto it = mem_table_.find(key);
     if (it == mem_table_.end()) {
-        return Status::NotFound();
+        return SearchInSST(key, value_out);
     }
 
     *value_out = it->second;
@@ -118,5 +119,44 @@ void MiniKV::FlushMemTableToSST()
     wal_file_.open(filename_, std::ios::out | std::ios::app);
     if (!wal_file_.is_open()) {
         std::cerr << "reopen wal after flush failed!\n";
+    }
+}
+
+Status MiniKV::SearchInSST(const std::string& key, std::string* value_out)
+{
+    for (auto file = sst_files_.rbegin(); file != sst_files_.rend(); ++file) {
+        std::ifstream input(*file);
+        if (!input.is_open()) {
+            continue;
+        }
+
+        std::string line;
+        while (std::getline(input, line)) {
+            const auto separator = line.find('|');
+            if (separator == std::string::npos) {
+                continue;
+            }
+
+            if (line.substr(0, separator) == key) {
+                *value_out = line.substr(separator + 1);
+                return Status::Ok();
+            }
+        }
+    }
+
+    return Status::NotFound();
+}
+
+void MiniKV::ScanSSTFiles()
+{
+    for (uint64_t sequence = 1;; ++sequence) {
+        const std::string name =
+            "sst_" + std::to_string(sequence) + ".sst";
+        std::ifstream input(name);
+        if (!input.is_open()) {
+            break;
+        }
+
+        sst_files_.push_back(name);
     }
 }

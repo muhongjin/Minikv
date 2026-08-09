@@ -52,6 +52,8 @@ private:
     void AppendSetLog(const std::string& key, const std::string& value);
     void AppendDeleteLog(const std::string& key);
     void FlushMemTableToSST();
+    Status SearchInSST(const std::string& key, std::string* value_out);
+    void ScanSSTFiles();
 };
 
 #endif
