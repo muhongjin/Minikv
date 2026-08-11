@@ -11,3 +11,9 @@ add_executable(minikv
     src/utils.cpp
     cli_main.cpp
 )
+
+add_executable(minikv_test
+    src/minikv.cpp
+    src/utils.cpp
+    minikv_test.cpp
+)
