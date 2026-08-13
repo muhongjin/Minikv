@@ -6,8 +6,8 @@
 
 - 已完成：内存表、`Set`、`Get`、`Delete`、状态返回、WAL 回放、SST 写入和 SST 查询
 - 部分完成：启动时会扫描连续的 SST 文件，新文件优先返回结果
+- 已完成：交互式命令行的 `SET`、`GET`、`DEL`、`HELP` 和 `EXIT`
 - 部分完成：自动化测试覆盖基础 CRUD、WAL 回放、阈值刷盘、版本覆盖和重启读取
-- 未完成：命令行
 
 ## WAL
 
@@ -29,6 +29,25 @@ cmake --build build
 ## 测试
 
 当前测试覆盖基础 CRUD、WAL 回放、MemTable 刷盘、最新 SST 优先和重启读取。测试文件会清理自己生成的日志与 SST 文件，但还没有独立运行目录。
+
+## 命令行
+
+| 命令 | 用途 | 示例 |
+| --- | --- | --- |
+| `SET key value` | 写入或更新键值 | `SET name Alice` |
+| `GET key` | 查询键值 | `GET name` |
+| `DEL key` | 删除键 | `DEL name` |
+| `HELP` | 查看帮助 | `HELP` |
+| `EXIT` | 退出程序 | `EXIT` |
+
+```text
+minikv> SET name Alice
+OK
+minikv> GET name
+Alice
+minikv> EXIT
+Bye.
+```
 
 ```bash
 cmake --build build --target minikv_test
