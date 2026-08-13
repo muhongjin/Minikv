@@ -6,8 +6,8 @@
 
 - 已完成：内存表、`Set`、`Get`、`Delete`、状态返回、WAL 回放、SST 写入和 SST 查询
 - 部分完成：启动时会扫描连续的 SST 文件，新文件优先返回结果
-- 部分完成：自动化测试覆盖基础 CRUD、WAL 回放和阈值刷盘
-- 未完成：命令行、SST 版本覆盖测试和重启测试
+- 部分完成：自动化测试覆盖基础 CRUD、WAL 回放、阈值刷盘、版本覆盖和重启读取
+- 未完成：命令行
 
 ## WAL
 
@@ -27,6 +27,8 @@ cmake --build build
 项目需要 CMake 3.16 及以上版本和支持 C++17 的编译器。
 
 ## 测试
+
+当前测试覆盖基础 CRUD、WAL 回放、MemTable 刷盘、最新 SST 优先和重启读取。测试文件会清理自己生成的日志与 SST 文件，但还没有独立运行目录。
 
 ```bash
 cmake --build build --target minikv_test

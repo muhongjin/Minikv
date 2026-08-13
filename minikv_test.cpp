@@ -18,7 +18,9 @@ void ClearStorage()
     const char* logs[] = {
         "test_basic.log",
         "test_replay.log",
-        "test_flush.log"
+        "test_flush.log",
+        "test_priority.log",
+        "test_restart.log"
     };
     for (const char* log : logs) {
         std::remove(log);
@@ -93,6 +95,51 @@ bool TestMemTableFlush()
     return true;
 }
 
+bool TestLatestSSTWins()
+{
+    ClearStorage();
+    {
+        MiniKV kv("test_priority.log");
+        ASSERT_TRUE(kv.Set("shared", "old").ok());
+        ASSERT_TRUE(kv.Set("old_a", "1").ok());
+        ASSERT_TRUE(kv.Set("old_b", "2").ok());
+        ASSERT_TRUE(kv.Set("old_c", "3").ok());
+        ASSERT_TRUE(kv.Set("old_d", "4").ok());
+        ASSERT_TRUE(kv.Set("shared", "new").ok());
+        ASSERT_TRUE(kv.Set("new_a", "1").ok());
+        ASSERT_TRUE(kv.Set("new_b", "2").ok());
+        ASSERT_TRUE(kv.Set("new_c", "3").ok());
+        ASSERT_TRUE(kv.Set("new_d", "4").ok());
+
+        ASSERT_TRUE(ExpectValue(kv, "shared", "new"));
+        ASSERT_TRUE(ExpectValue(kv, "old_a", "1"));
+        ASSERT_TRUE(ExpectValue(kv, "new_d", "4"));
+    }
+    ClearStorage();
+    return true;
+}
+
+bool TestSSTSurvivesRestart()
+{
+    ClearStorage();
+    {
+        MiniKV kv("test_restart.log");
+        ASSERT_TRUE(kv.Set("persist", "value").ok());
+        ASSERT_TRUE(kv.Set("fill_a", "1").ok());
+        ASSERT_TRUE(kv.Set("fill_b", "2").ok());
+        ASSERT_TRUE(kv.Set("fill_c", "3").ok());
+        ASSERT_TRUE(kv.Set("fill_d", "4").ok());
+    }
+    {
+        MiniKV recovered("test_restart.log");
+        ASSERT_TRUE(ExpectValue(recovered, "persist", "value"));
+        ASSERT_TRUE(ExpectValue(recovered, "fill_d", "4"));
+        ASSERT_TRUE(ExpectMissing(recovered, "missing"));
+    }
+    ClearStorage();
+    return true;
+}
+
 bool RunTest(const char* name, bool (*test)())
 {
     const bool passed = test();
@@ -106,6 +153,8 @@ int main()
     allPassed &= RunTest("TestBasicCRUD", TestBasicCRUD);
     allPassed &= RunTest("TestWALReplay", TestWALReplay);
     allPassed &= RunTest("TestMemTableFlush", TestMemTableFlush);
+    allPassed &= RunTest("TestLatestSSTWins", TestLatestSSTWins);
+    allPassed &= RunTest("TestSSTSurvivesRestart", TestSSTSurvivesRestart);
     std::cout << (allPassed ? "==== All tests passed ====\n"
                             : "==== Some tests failed ====\n");
     return allPassed ? 0 : 1;
