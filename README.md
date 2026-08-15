@@ -36,9 +36,9 @@ cmake --build build
 | --- | --- | --- |
 | `SET key value` | 写入或更新键值 | `SET name Alice` |
 | `GET key` | 查询键值 | `GET name` |
-| `DEL key` | 删除键 | `DEL name` |
+| `DEL key` / `DELETE key` | 删除键 | `DEL name` |
 | `HELP` | 查看帮助 | `HELP` |
-| `EXIT` | 退出程序 | `EXIT` |
+| `EXIT` / `QUIT` | 退出程序 | `EXIT` |
 
 ```text
 minikv> SET name Alice
@@ -48,6 +48,8 @@ Alice
 minikv> EXIT
 Bye.
 ```
+
+命令名不区分大小写，`SET` 的 value 会保留中间空格。WAL 使用 `|` 分隔字段，因此 key 和 value 不能包含这个字符。
 
 ```bash
 cmake --build build --target minikv_test
