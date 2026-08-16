@@ -1,162 +1,184 @@
 #include "minikv.h"
 #include "utils.h"
-
-#include <cstdio>
-#include <fstream>
+#include <unordered_map>
+#include <sstream>
 #include <iostream>
 #include <vector>
 
-MiniKV::MiniKV(const std::string& logFile) : filename_(logFile)
+MiniKV::MiniKV(const std::string& logFile)
 {
+    filename = logFile;
+    // 先恢复未刷盘的数据，再登记磁盘上的 SST 文件。
     ReplayWAL();
     ScanSSTFiles();
-    wal_file_.open(filename_, std::ios::out | std::ios::app);
+    // 追加打开日志，后续操作接着写入。
+    walFile_.open(logFile, std::ios::app | std::ios::out);
+    if(!walFile_.is_open()){
+        std::cerr << "open wal log failed!" << std::endl;
+    }
 }
 
 MiniKV::~MiniKV()
 {
-    if (wal_file_.is_open()) {
-        wal_file_.flush();
-        wal_file_.close();
+    if(walFile_.is_open()){
+        walFile_.flush();
+        walFile_.close();
     }
 }
 
-Status MiniKV::Set(const std::string& key, const std::string& value)
-{
+Status MiniKV::Set(const std::string& key, const std::string& value){
     AppendSetLog(key, value);
-    if (mem_table_.find(key) == mem_table_.end()) {
-        ++mem_entry_count_;
+    // 覆盖已有键不增加刷盘计数。
+    if(mem_table_.find(key) == mem_table_.end()){
+        memEntryCount_ ++;
     }
     mem_table_[key] = value;
 
-    if (mem_entry_count_ >= kMemTableThreshold) {
+    // 新增键达到阈值时写入 SST。
+    if(memEntryCount_ >= kMemTableThreshold)
+    {
         FlushMemTableToSST();
     }
-
     return Status::Ok();
 }
 
-Status MiniKV::Get(const std::string& key, std::string* value_out)
+Status MiniKV::Get(const std::string& key, std::string* val_out)
 {
-    const auto it = mem_table_.find(key);
-    if (it == mem_table_.end()) {
-        return SearchInSST(key, value_out);
+    // 内存命中直接返回，未命中时再查询 SST 文件。
+    auto it = mem_table_.find(key);
+    if(it != mem_table_.end())
+    {
+        *val_out = it->second;
+        return Status::Ok();
     }
-
-    *value_out = it->second;
-    return Status::Ok();
+    return SearchInSST(key, val_out);
 }
 
-Status MiniKV::Delete(const std::string& key)
-{
-    AppendDeleteLog(key);
-    const auto it = mem_table_.find(key);
-    if (it != mem_table_.end()) {
+Status MiniKV::Delete(const std::string& key){
+    AppendDelLog(key);
+    // 删除只更新内存表，已落盘数据仍会保留在旧 SST 中。
+    auto it = mem_table_.find(key);
+    if(it != mem_table_.end())
+    {
         mem_table_.erase(it);
-        --mem_entry_count_;
+        memEntryCount_ --;
     }
     return Status::Ok();
 }
 
-void MiniKV::AppendSetLog(const std::string& key, const std::string& value)
+void MiniKV::AppendSetLog(const std::string& key, const std::string& val)
 {
-    if (!wal_file_.is_open()) {
-        return;
-    }
-
-    wal_file_ << "SET|" << key << "|" << value << '\n';
-    wal_file_.flush();
+    // 一条写入记录保存为 SET|key|value。
+    if(!walFile_.is_open()) return;
+    walFile_ << "SET|" << key << "|" << val << std::endl;
+    walFile_.flush();
 }
 
-void MiniKV::AppendDeleteLog(const std::string& key)
+void MiniKV::AppendDelLog(const std::string& key)
 {
-    if (!wal_file_.is_open()) {
-        return;
-    }
-
-    wal_file_ << "DEL|" << key << '\n';
-    wal_file_.flush();
+    // 一条删除记录只保存操作类型和键。
+    if(!walFile_.is_open()) return;
+    walFile_ << "DEL|" << key << std::endl;
+    walFile_.flush();
 }
 
 void MiniKV::ReplayWAL()
 {
-    std::ifstream input(filename_);
-    if (!input.is_open()) {
+    // 日志必须按写入顺序回放，后出现的记录覆盖先前状态。
+    std::ifstream inFile(filename);
+    if (!inFile.is_open()) {
         return;
     }
+    std::string s = "";
+    while(getline(inFile,s)){
+         std::vector<std::string> vec = split(s, '|');
+        if(vec.empty()) continue;
 
-    std::string line;
-    while (std::getline(input, line)) {
-        const std::vector<std::string> fields = split(line, '|');
-        if (fields.empty()) {
-            continue;
+        if(vec[0] == "SET"){
+            if(vec.size() >= 3){
+                std::string key = vec[1];
+                std::string val = vec[2];
+                mem_table_[key] = val;
+            }
         }
-
-        if (fields[0] == "SET" && fields.size() >= 3) {
-            mem_table_[fields[1]] = fields[2];
-        } else if (fields[0] == "DEL" && fields.size() >= 2) {
-            mem_table_.erase(fields[1]);
+        else if(vec[0] == "DEL"){
+            if(vec.size() >= 2){
+                std::string key = vec[1];
+                mem_table_.erase(key);
+            }
         }
     }
+    inFile.close();
 }
 
 void MiniKV::FlushMemTableToSST()
 {
-    const std::string sst_name =
-        "sst_" + std::to_string(next_sst_seq_++) + ".sst";
-    std::ofstream output(sst_name);
-    for (const auto& entry : mem_table_) {
-        output << entry.first << "|" << entry.second << '\n';
+    // 文件名使用递增序号，查询时新文件优先于旧文件。
+    std::string sst_name = "sst_" + std::to_string(next_sst_seq_++) + ".sst";
+    std::ofstream out(sst_name);
+
+    // SST 每行保存一个 key|value 对。
+    for(auto &pair : mem_table_)
+    {
+        out << pair.first << "|" << pair.second << "\n";
     }
-    output.close();
+    out.close();
 
-    sst_files_.push_back(sst_name);
+    sstFiles_.push_back(sst_name);
+
+    // SST 写完后清空内存表，再重建 WAL。
     mem_table_.clear();
-    mem_entry_count_ = 0;
+    memEntryCount_ = 0;
 
-    wal_file_.close();
-    std::remove(filename_.c_str());
-    wal_file_.open(filename_, std::ios::out | std::ios::app);
-    if (!wal_file_.is_open()) {
+    walFile_.close();
+    std::remove(filename.c_str());
+    walFile_.open(filename, std::ios::out | std::ios::app);
+    if (!walFile_.is_open())
+    {
         std::cerr << "reopen wal after flush failed!\n";
     }
 }
 
-Status MiniKV::SearchInSST(const std::string& key, std::string* value_out)
+Status MiniKV::SearchInSST(const std::string& key, std::string* val_out)
 {
-    for (auto file = sst_files_.rbegin(); file != sst_files_.rend(); ++file) {
-        std::ifstream input(*file);
-        if (!input.is_open()) {
-            continue;
-        }
-
+    // 逆序遍历 SST，先命中新文件里的值。
+    for(auto it = sstFiles_.rbegin(); it != sstFiles_.rend(); ++it)
+    {
+        const auto& sst_name = *it;
+        std::ifstream fin(sst_name);
+        if(!fin.is_open()) continue;
         std::string line;
-        while (std::getline(input, line)) {
-            const auto separator = line.find('|');
-            if (separator == std::string::npos) {
-                continue;
-            }
-
-            if (line.substr(0, separator) == key) {
-                *value_out = line.substr(separator + 1);
+        while(std::getline(fin, line))
+        {
+            // 只在第一个分隔符处分开键和值。
+            auto pos = line.find('|');
+            if(pos == std::string::npos) continue;
+            std::string k = line.substr(0, pos);
+            std::string v = line.substr(pos+1);
+            if(k == key)
+            {
+                *val_out = v;
                 return Status::Ok();
             }
         }
     }
-
     return Status::NotFound();
 }
 
 void MiniKV::ScanSSTFiles()
 {
-    for (uint64_t sequence = 1;; ++sequence) {
-        const std::string name =
-            "sst_" + std::to_string(sequence) + ".sst";
-        std::ifstream input(name);
-        if (!input.is_open()) {
+    uint64_t seq = 1;
+    // 当前实现要求序号连续，遇到缺号就停止扫描。
+    while(true)
+    {
+        std::string fname = "sst_" + std::to_string(seq) + ".sst";
+        std::ifstream fin(fname);
+        if (!fin.is_open())
+        {
             break;
         }
-
-        sst_files_.push_back(name);
+        fin.close();
+        sstFiles_.push_back(fname);
+        seq ++;
     }
 }

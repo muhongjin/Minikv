@@ -45,6 +45,7 @@ void HandleSet(MiniKV& kv, const std::string& arguments)
     }
 
     std::string value;
+    // 读取 key 后的剩余文本，保留 value 中的空格。
     std::getline(input, value);
     value = TrimLeft(value);
     if (value.empty() || HasSeparator(key) || HasSeparator(value)) {
@@ -116,6 +117,7 @@ int main()
         std::string arguments;
         std::getline(input, arguments);
         arguments = TrimLeft(arguments);
+        // 命令统一转为大写，参数保持原样。
         NormalizeCommand(command);
 
         if (command == "SET") {
